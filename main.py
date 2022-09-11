@@ -364,7 +364,36 @@ class Dcel(): #doubly connected line list for stornig planar subdivisions
             if face.contains(pt):
                 return face
         return None
-        
+
+
+
+def pg_hsv_colour(h, s, v):
+    colour = pygame.Color(0, 0, 0)
+    colour.hsva = (h, s, v)
+    return colour
+
+
+COLOURS = {"grey" : pg_hsv_colour(0, 0, 40),
+           "red" : pg_hsv_colour(0, 100, 100),
+           "orange" : pg_hsv_colour(30, 100, 100),
+           "gold" : pg_hsv_colour(45, 100, 100),
+           "yellow" : pg_hsv_colour(60, 100, 100),
+           "lime" : pg_hsv_colour(90, 100, 100),
+           "green" : pg_hsv_colour(120, 100, 100),
+           "emerald" : pg_hsv_colour(150, 100, 100),
+           "cyan" : pg_hsv_colour(180, 100, 100),
+           "blue" : pg_hsv_colour(210, 100, 100),
+           "indigo" : pg_hsv_colour(240, 100, 100),
+           "violet" : pg_hsv_colour(270, 100, 100),
+           "purple" : pg_hsv_colour(285, 100, 100),
+           "pink" : pg_hsv_colour(300, 100, 100),
+           "fuchsia" : pg_hsv_colour(330, 100, 100)}
+
+
+
+def colour_name(name):
+    return "my_" + name
+
 
 
 class DrawSection():
@@ -372,26 +401,30 @@ class DrawSection():
         assert isinstance(section, Section)
         self.section = section
         self.appearance = "normal"
-        self.rand_colour()
 
+        self.colour = next(iter(COLOURS.keys()))
 
-    def rand_colour(self):
-        colour = pygame.Color(0, 0, 0)
-        colour.hsva = (random.randint(0, 359), 100, 100)
-        self.colour = [colour.r, colour.g, colour.b]
-        self.tikz_colour = "{rgb,255: red, " + str(colour.r) + "; green, " + str(colour.g) + "; blue, " + str(colour.b) + "}"
+    @property
+    def tikz_colour(self):
+        colour = COLOURS[self.colour]
+        return "{rgb,255: red, " + str(colour.r) + "; green, " + str(colour.g) + "; blue, " + str(colour.b) + "}"
+
+    @property
+    def pg_colour(self):
+        colour = COLOURS[self.colour]
+        return [colour.r, colour.g, colour.b]
+        
     def input_colour(self):
+        print("Colours:" + ", ".join(COLOURS.keys()))
         while True:
-            try:
-                colour = input("pg colour:")
-                colour = colour.split(",")
-                assert len(colour) == 3
-                colour = [int(x) for x in colour]
+            colour = input("pg colour:")
+            if colour in COLOURS:
                 self.colour = colour
-                self.tikz_colour = input("section colour:")
                 return
-            except:
-                pass
+
+    def next_colour(self):
+        all_colours = list(COLOURS.keys())
+        self.colour = all_colours[(all_colours.index(self.colour) + 1) % len(all_colours)]
 
 
     def yield_tikz_shapes(self, idx):
@@ -402,37 +435,37 @@ class DrawSection():
 
             border_thickness = 0.085
 
-            fill_geom = shapely.geometry.Polygon(outer_coords, inners_coords).buffer(0.2).buffer(-0.4).buffer(0.2)
+            fill_geom = shapely.geometry.Polygon(outer_coords, inners_coords)#.buffer(0.2).buffer(-0.4).buffer(0.2)
             if self.appearance in {"normal"}:
-                yield TikzShape(fill_geom, self.colour + [24], (1, idx)) #light fill
+                yield TikzShape(fill_geom, colour_name(self.colour), 16/255, (1, idx)) #light fill
             if self.appearance in {"highlight"}:
-                yield TikzShape(fill_geom, self.colour + [128], (2, idx)) #dark fill
+                yield TikzShape(fill_geom, colour_name(self.colour), 128/255, (2, idx)) #dark fill
 
-            edge_geom = shapely.ops.unary_union([geom.buffer(border_thickness) for geom in [fill_geom.exterior] + list(fill_geom.interiors)])
+            edge_geom = shapely.ops.unary_union([geom.buffer(border_thickness, join_style = 2) for geom in [fill_geom.exterior] + list(fill_geom.interiors)])
             inner_edge_geom = edge_geom.intersection(fill_geom)
             outer_edge_geom = edge_geom.difference(fill_geom)
-            middle_edge_geom = shapely.ops.unary_union([geom.buffer(border_thickness / 3) for geom in [fill_geom.exterior] + list(fill_geom.interiors)])
+            middle_edge_geom = shapely.ops.unary_union([geom.buffer(border_thickness / 3, join_style = 2) for geom in [fill_geom.exterior] + list(fill_geom.interiors)])
 
             if self.appearance in {"normal"}:
-                yield TikzShape(inner_edge_geom, self.colour + [255], (3, idx)) #inner colour border
+                yield TikzShape(inner_edge_geom, colour_name(self.colour), 1, (3, idx)) #inner colour border
             if self.appearance in {"normal", "border", "black"}:
-                yield TikzShape(middle_edge_geom, [0, 0, 0, 255], (4, idx)) #mid black border
+                yield TikzShape(middle_edge_geom, "black", 1, (4, idx)) #mid black border
             if self.appearance in {"border"}:
-                yield TikzShape(outer_edge_geom, self.colour + [255], (0, idx)) #outer colour border
+                yield TikzShape(outer_edge_geom, colour_name(self.colour), 1, (0, idx)) #outer colour border
             
 
 class TikzShape():
-    def __init__(self, geom, colour, layer):
+    def __init__(self, geom, colour, opacity, layer):
         geom = shapely.geometry.GeometryCollection([geom])
         self.polys = shapely.geometry.GeometryCollection([g for g in geom.geoms if type(g) == shapely.geometry.Polygon]).geoms
-        self.colour = tuple(colour)
-        assert len(self.colour) == 4
+        self.colour = colour
+        assert type(self.colour) == str
         self.layer = tuple(layer) #(primary, secondary)
         assert len(self.layer) == 2
+        self.opacity = opacity
             
     def to_tikz(self):
-        tikz_colour = "{rgb,255: red, " + str(self.colour[0]) + "; green, " + str(self.colour[1]) + "; blue, " + str(self.colour[2]) + "}"
-        string = "\\fill[fill=" + tikz_colour + ", opacity=" + str(self.colour[3] / 255) + "]"
+        string = "\\fill[fill=" + self.colour + ", opacity=" + str(self.opacity) + ", rounded corners = 0.3cm]"
         for poly in self.polys:
             string += "--".join(f"({round(x, 3)}, {round(y, 3)})" for x, y in poly.exterior.coords[:-1]) + "--cycle"
             for inn in poly.interiors:
@@ -510,7 +543,7 @@ class Viewer():
             assert isinstance(line, Line)
             return [point_to_state(line.p), point_to_state(line.q)]
 
-        return str([[line_to_state(line) for line in self.lines], [draw_section_to_state(draw_section) for draw_section in self.draw_sections]]).replace(" ", "")
+        return str([[line_to_state(line) for line in self.lines], [draw_section_to_state(draw_section) for draw_section in self.draw_sections]])
 
         
 
@@ -543,7 +576,7 @@ class Viewer():
             assert len(draw_section[1]) == 3
             for n in draw_section[1]:
                 assert type(n) == int and 0 <= n < 256
-            ds.colour = draw_section[1]
+            ds.colour = str(draw_section[1]) if str(draw_section[1]) in COLOURS else next(iter(COLOURS.keys())) 
             return ds
         
         def parse_line(line):
@@ -562,7 +595,7 @@ class Viewer():
             print("Invalid Input")
         else:
             lines, draw_sections = parse_state(state)
-            self.lies = lines
+            self.lines = lines
             self.update()
             self.draw_sections = draw_sections
 
@@ -570,8 +603,16 @@ class Viewer():
         
         string = ""
         string += "%" + self.save_state() + "\n"
-        for idx, draw_section in enumerate(reversed(self.draw_sections)):
-            string += "\\definecolor{" + f"pcol{idx}" + "}{rgb}{" + ",".join(str(round(0.9 * draw_section.colour[i] / 255, 3)) for i in range(3)) + "}\n"
+
+        used_colours = set()
+        for draw_section in self.draw_sections:
+            used_colours.add(draw_section.colour)
+
+        for used_colour in used_colours:
+            colour = COLOURS[used_colour]
+            colour = [colour.r, colour.g, colour.b]
+            string += "\\definecolor{" + f"my_{used_colour}" + "}{rgb}{" + ",".join(str(round(0.9 * colour[i] / 255, 3)) for i in range(3)) + "}\n"
+
         string += "\\[\\begin{tikzpicture}[baseline=0]\n"
         string += "\\begin{scope}\n"
 
@@ -765,11 +806,11 @@ class Viewer():
             if len(self.sel_faces) == 0:
                 for draw_section in self.draw_sections:
                     for face in draw_section.section.faces:
-                        draw_face(face, draw_section.colour, 128, draw_section.appearance)
+                        draw_face(face, draw_section.pg_colour, 128, draw_section.appearance)
         else:
             draw_section = self.draw_sections[self.current_draw_section]
             for face in draw_section.section.faces:
-                draw_face(face, draw_section.colour, 255, draw_section.appearance)
+                draw_face(face, draw_section.pg_colour, 255, draw_section.appearance)
 
                 
         
@@ -878,7 +919,7 @@ class Viewer():
 
             if event.key == pygame.K_c:
                 if self.current_draw_section is not None:
-                    self.draw_sections[self.current_draw_section].rand_colour()
+                    self.draw_sections[self.current_draw_section].next_colour()
 
             if event.key == pygame.K_b:
                 if self.current_draw_section is not None:
@@ -894,6 +935,7 @@ class Viewer():
                     self.draw_sections[self.current_draw_section].tikz_colour = "black"
                     
             if event.key == pygame.K_t:
+                print("\n" * 6)
                 print(self.to_tikz())
 
             if event.key == pygame.K_i:
