@@ -452,9 +452,25 @@ class DrawSection():
                 yield TikzShape(middle_edge_geom, "black", 1, (4, idx)) #mid black border
             if self.appearance in {"border"}:
                 yield TikzShape(outer_edge_geom, colour_name(self.colour), 1, (0, idx)) #outer colour border
+
+
+
+class DrawLabel():
+    def __init__(self, label):
+        self.colour = "black"
+        self.label = label
+
+    def yield_tikz_shapes(self, pt):
+        yield TikzLabel([float(pt.x), float(pt.y)], self.colour, self.label)
+
+
+
+class TikzObj():
+    def to_tikz(self):
+        raise NotImplemented()
             
 
-class TikzShape():
+class TikzShape(TikzObj):
     def __init__(self, geom, colour, opacity, layer):
         geom = shapely.geometry.GeometryCollection([geom])
         self.polys = shapely.geometry.GeometryCollection([g for g in geom.geoms if type(g) == shapely.geometry.Polygon]).geoms
@@ -475,6 +491,18 @@ class TikzShape():
 
 
 
+class TikzLabel(TikzObj):
+    def __init__(self, pos, colour, label):
+        self.pos = pos
+        self.colour = colour
+        self.label = label
+
+    def to_tikz(self):
+        return "\\node[" + self.colour + "] at (" + str(self.pos[0]) + ", " + str(self.pos[1]) + ") {" + self.label + "};"
+
+
+
+
 
 class Viewer():
     def __init__(self):
@@ -482,6 +510,7 @@ class Viewer():
         self.sel_faces = set()
         self.sel_section = None
         self.draw_sections = []
+        self.draw_labels = {} #{Point : DrawLabel}
         self.current_draw_section = None
         
         self.lines = [] #scaffolding lines drawn by the user
@@ -543,7 +572,12 @@ class Viewer():
             assert isinstance(line, Line)
             return [point_to_state(line.p), point_to_state(line.q)]
 
-        return str([[line_to_state(line) for line in self.lines], [draw_section_to_state(draw_section) for draw_section in self.draw_sections]])
+        def label_to_state(pt, label):
+            assert isinstance(pt, Point)
+            assert isinstance(label, DrawLabel)
+            return [point_to_state(pt), label.colour, label.label]
+
+        return str([[line_to_state(line) for line in self.lines], [draw_section_to_state(draw_section) for draw_section in self.draw_sections], [label_to_state(pt, dl) for pt, dl in self.draw_labels.items()]])
 
         
 
@@ -580,21 +614,34 @@ class Viewer():
             assert type(line) == list and len(line) == 2
             return Line(parse_point(line[0]), parse_point(line[1]))
 
+        def parse_draw_label(draw_label):
+            assert type(draw_label) == list and len(draw_label) == 3
+            pt = parse_point(draw_label[0])
+            dl = DrawLabel(str(draw_label[2]))
+            dl.colour = str(draw_label[1])
+            return pt, dl
+
         def parse_state(state):
-            assert type(state) == list and len(state) == 2
-            lines, draw_sections = state
-            return [parse_line(line) for line in lines], [parse_draw_section(draw_section) for draw_section in draw_sections]
+            assert type(state) == list and len(state) == 3
+            lines, draw_sections, draw_labels = state
+            return [parse_line(line) for line in lines], [parse_draw_section(draw_section) for draw_section in draw_sections], [parse_draw_label(draw_label) for draw_label in draw_labels]
         
         import ast
         try:
             state = ast.literal_eval(state)
+            if type(state) != list:
+                raise ValueError()
         except ValueError:
             print("Invalid Input")
         else:
-            lines, draw_sections = parse_state(state)
+            while len(state) < 3: #for backwards compatibility
+                state.append([])
+            assert len(state) == 3
+            lines, draw_sections, draw_labels = parse_state(state)
             self.lines = lines
             self.update()
             self.draw_sections = draw_sections
+            self.draw_labels = dict(draw_labels)
 
     def to_tikz(self):
         
@@ -618,7 +665,12 @@ class Viewer():
             tikz_shapes.extend(draw_section.yield_tikz_shapes(idx))
         for tikz_shape in sorted(tikz_shapes, key = lambda shape : shape.layer):
             string += tikz_shape.to_tikz()
-        
+
+        for pt, draw_label in self.draw_labels.items():
+            for ts in draw_label.yield_tikz_shapes(pt):
+                string += ts.to_tikz()
+
+        string += "\n"
         string += "\\end{scope}\n"
         string += "\\end{tikzpicture}\\]\n"
 
@@ -809,6 +861,8 @@ class Viewer():
             for face in draw_section.section.faces:
                 draw_face(face, draw_section.pg_colour, 255, draw_section.appearance)
 
+        for pt in self.draw_labels:
+            pygame.draw.circle(SCREEN, [0, 0, 0], self.to_pg([pt.x, pt.y]), 10)
                 
         
 
@@ -869,8 +923,8 @@ class Viewer():
                     a = self.from_pg(event.pos)
                     b = self.from_pg(self.start_pos)
 
-                    a = [round(a[i]) for i in [0, 1]]
-                    b = [round(b[i]) for i in [0, 1]]
+                    a = [Frac(round(2 * a[i]), 2) for i in [0, 1]]
+                    b = [Frac(round(2 * b[i]), 2) for i in [0, 1]]
 
                     a = Point(*a)
                     b = Point(*b)
@@ -884,6 +938,11 @@ class Viewer():
                         else:
                             self.lines.append(line)
                         self.update()
+                    else:
+                        if a in self.draw_labels:
+                            del self.draw_labels[a]
+                        else:
+                            self.draw_labels[a] = DrawLabel(input("Label:"))
                     
                 self.start_pos = None
 
