@@ -441,9 +441,9 @@ class DrawSection():
             if self.appearance in {"highlight"}:
                 yield TikzShape(fill_geom, colour_name(self.colour), 128/255, (2, idx)) #dark fill
 
-            edge_geom = shapely.ops.unary_union([geom.buffer(border_thickness, join_style = 2) for geom in [fill_geom.exterior] + list(fill_geom.interiors)])
-            inner_edge_geom = edge_geom.intersection(fill_geom)
-            outer_edge_geom = edge_geom.difference(fill_geom)
+            edge_geom = shapely.ops.unary_union([geom for geom in [fill_geom.exterior] + list(fill_geom.interiors)])
+            inner_edge_geom = edge_geom.buffer(border_thickness, join_style = 2).intersection(fill_geom)
+            outer_edge_geom = edge_geom.buffer(1.5 * border_thickness, join_style = 2).difference(fill_geom)
             middle_edge_geom = shapely.ops.unary_union([geom.buffer(border_thickness / 3, join_style = 2) for geom in [fill_geom.exterior] + list(fill_geom.interiors)])
 
             if self.appearance in {"normal"}:
@@ -573,9 +573,6 @@ class Viewer():
             assert type(draw_section) == list and len(draw_section) == 3
             ds = DrawSection(parse_section(draw_section[0]))
             ds.appearance = ["normal", "border", "highlight", "black"][draw_section[2]]
-            assert len(draw_section[1]) == 3
-            for n in draw_section[1]:
-                assert type(n) == int and 0 <= n < 256
             ds.colour = str(draw_section[1]) if str(draw_section[1]) in COLOURS else next(iter(COLOURS.keys())) 
             return ds
         
